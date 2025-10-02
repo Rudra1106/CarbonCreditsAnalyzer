@@ -7,12 +7,12 @@ from typing import Tuple
 class ImageProcessor:
     """Handles image upload, validation, and processing"""
     
-    # Supported formats
+
     ALLOWED_FORMATS = {'image/jpeg', 'image/jpg', 'image/png', 'image/webp'}
     
-    # Max dimensions (saves API costs)
-    MAX_WIDTH = 1024
-    MAX_HEIGHT = 1024
+    # Max dimensions 
+    MAX_WIDTH = 1920
+    MAX_HEIGHT = 1080
     
     # Max file size (10MB)
     MAX_FILE_SIZE = 10 * 1024 * 1024
