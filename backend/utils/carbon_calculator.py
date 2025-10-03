@@ -34,12 +34,16 @@ class CarbonCalculator:
         "poor": 0.5
     }
     
-    # Carbon credit market prices (USD per ton CO2)
+    # Carbon credit market prices (INR per ton CO2)
+    # International prices: $15-50 USD, converted at ₹83/USD (Oct 2025)
     CREDIT_PRICE_RANGE = {
-        "min": 15,   # Voluntary market, lower quality
-        "mid": 30,   # Average verified credits
-        "max": 50    # Premium verified credits
+        "min": 1245,   # Voluntary market, lower quality (~$15 USD)
+        "mid": 2490,   # Average verified credits (~$30 USD)
+        "max": 4150    # Premium verified credits (~$50 USD)
     }
+    
+    # Exchange rate for reference
+    USD_TO_INR_RATE = 83.0
     
     def __init__(self):
         pass
@@ -139,19 +143,19 @@ class CarbonCalculator:
     
     def calculate_credits_and_revenue(self, annual_tons: float) -> Dict[str, Any]:
         """
-        Calculate potential carbon credits and revenue
+        Calculate potential carbon credits and revenue in INR
         
         Args:
             annual_tons: Annual CO2 sequestration in tons
             
         Returns:
-            Dict with credit and revenue estimates
+            Dict with credit and revenue estimates in INR
         """
         
         # 1 ton CO2 = 1 carbon credit
         annual_credits = annual_tons
         
-        # Revenue projections (conservative, mid, optimistic)
+        # Revenue projections in INR (conservative, mid, optimistic)
         revenue_conservative = annual_credits * self.CREDIT_PRICE_RANGE["min"]
         revenue_mid = annual_credits * self.CREDIT_PRICE_RANGE["mid"]
         revenue_optimistic = annual_credits * self.CREDIT_PRICE_RANGE["max"]
@@ -178,8 +182,12 @@ class CarbonCalculator:
         
         return {
             "annual_credits": round(annual_credits, 2),
-            "credit_price_range_usd": self.CREDIT_PRICE_RANGE,
-            "revenue_projections_usd": projections
+            "credit_price_range_inr": self.CREDIT_PRICE_RANGE,
+            "revenue_projections_inr": projections,
+            "exchange_rate_reference": {
+                "usd_to_inr": self.USD_TO_INR_RATE,
+                "note": "International carbon credits priced in USD, converted to INR"
+            }
         }
     
     def determine_confidence(self, vision_analysis: dict, image_quality: str) -> ConfidenceLevel:
@@ -255,7 +263,7 @@ class CarbonCalculator:
         
         # General recommendations
         recommendations.append("Get a professional land survey for accurate area measurements")
-        recommendations.append("Contact verified carbon credit programs: Verra, Gold Standard, or regional programs")
+        recommendations.append("Contact verified carbon credit programs: Verra, Gold Standard, or Indian programs like CAMPA")
         
         return recommendations
     
@@ -264,10 +272,10 @@ class CarbonCalculator:
         
         return [
             "1. Get professional land survey and soil testing",
-            "2. Research carbon credit programs in your region",
+            "2. Research carbon credit programs in India (CAMPA, State Forest Departments)",
             "3. Understand program requirements (usually 20-30 year commitments)",
             "4. Consider consulting with carbon project developers",
-            "5. Evaluate costs: verification, monitoring, administrative fees",
+            "5. Evaluate costs: verification, monitoring, administrative fees (₹4-17 lakhs)",
             "6. Compare multiple carbon programs for best fit"
         ]
     
@@ -324,11 +332,12 @@ class CarbonCalculator:
                 "estimated_land_area_hectares": estimated_area,
                 "area_estimation_method": area_explanation,
                 "potential_annual_credits": revenue_data["annual_credits"],
-                "potential_revenue_usd": revenue_data["revenue_projections_usd"],
+                "potential_revenue_inr": revenue_data["revenue_projections_inr"],
                 "confidence_level": confidence.value,
                 "calculation_details": sequestration,
                 "market_context": {
-                    "credit_price_range": revenue_data["credit_price_range_usd"],
+                    "credit_price_range_inr": revenue_data["credit_price_range_inr"],
+                    "exchange_rate": revenue_data["exchange_rate_reference"],
                     "note": "Prices vary by program, verification level, and market conditions"
                 }
             },
@@ -339,7 +348,7 @@ class CarbonCalculator:
                 "⚠️ Actual carbon credit eligibility requires professional land survey and soil testing",
                 "⚠️ Revenue estimates are approximate and depend on market conditions",
                 "⚠️ Most carbon programs require 20-30 year land commitments",
-                "⚠️ Verification and monitoring costs typically range from $5,000-$20,000",
+                "⚠️ Verification and monitoring costs typically range from ₹4-17 lakhs",
                 "⚠️ Contact certified carbon credit programs for official assessment"
             ]
         }
