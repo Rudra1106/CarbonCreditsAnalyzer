@@ -51,7 +51,8 @@ async def root():
         "endpoints": {
             "POST /analyze": "Complete analysis with image + location + report",
             "POST /chat": "Ask questions about carbon credits or your analysis",
-            "GET /chat/suggestions": "Get suggested questions",
+            "POST /chat/suggestions": "Get suggested questions",
+            "GET /test-chatbot": "Test chatbot connection",
             "GET /states": "Get list of Indian states",
             "GET /health": "API health check",
             "GET /docs": "Interactive documentation"
@@ -127,12 +128,17 @@ async def chat(
         
         print(f"[CHAT] Response: {result.get('response', '')[:100]}...")
         
+        context_info = result.get('context_info', {})
+        if context_info.get('conversation_truncated'):
+            print(f"[CHAT] Context truncated - keeping {context_info.get('messages_in_context')} messages")
+        
         return {
             "status": result["status"],
             "response": result["response"],
             "tokens": result.get("tokens", {}),
             "model": result.get("model"),
-            "search_performed": result.get("search_performed", False)
+            "search_performed": result.get("search_performed", False),
+            "context_info": result.get("context_info", {})
         }
         
     except Exception as e:
@@ -315,9 +321,10 @@ async def startup_event():
     
     # Check API keys
     keys = {
-        "OpenRouter (Llama Vision + Chatbot)": os.getenv("OPENROUTER_API_KEY"),
+        "OpenRouter (Llama Vision + Mistral Chat)": os.getenv("OPENROUTER_API_KEY"),
         "OpenAI (Reports)": os.getenv("OPENAI_API_KEY"),
-        "OpenWeather (Location)": os.getenv("OPENWEATHER_API_KEY")
+        "OpenWeather (Location)": os.getenv("OPENWEATHER_API_KEY"),
+        "SerpApi (Web Search)": os.getenv("SERPAPI_KEY")
     }
     
     for service, key in keys.items():

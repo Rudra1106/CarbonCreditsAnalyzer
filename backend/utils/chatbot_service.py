@@ -9,8 +9,14 @@ class ChatbotService:
     Features:
     - Full report context
     - Web search capability (SerpApi)
+    - Smart context window management
     - Cost-effective via OpenRouter credits
     """
+    
+    # Context window limits
+    MAX_CONTEXT_TOKENS = 32000  # Mistral 8x7B context window
+    SAFE_CONTEXT_TOKENS = 24000  # Leave room for response
+    MAX_HISTORY_MESSAGES = 20   # Maximum conversation history to keep
     
     def __init__(self):
         self.api_key = os.getenv("OPENROUTER_API_KEY")
@@ -26,6 +32,86 @@ class ChatbotService:
         )
         
         self.model = "mistralai/mixtral-8x7b-instruct"
+    
+    def _estimate_tokens(self, text: str) -> int:
+        """
+        Rough token estimation (1 token ≈ 4 characters for English)
+        More accurate than character count alone
+        """
+        # Account for special tokens and formatting
+        return len(text) // 3
+    
+    def _manage_context_window(
+        self,
+        system_prompt: str,
+        conversation_history: List[Dict[str, str]],
+        user_message: str,
+        search_results: Optional[str] = None
+    ) -> List[Dict[str, str]]:
+        """
+        Intelligently manage context window to prevent overflow
+        
+        Strategy:
+        1. Always keep system prompt (user's analysis)
+        2. Keep recent conversation (sliding window)
+        3. Summarize older messages if needed
+        4. Add search results if available
+        """
+        
+        # Estimate tokens
+        system_tokens = self._estimate_tokens(system_prompt)
+        user_tokens = self._estimate_tokens(user_message)
+        search_tokens = self._estimate_tokens(search_results) if search_results else 0
+        
+        # Reserve tokens for response
+        available_tokens = self.SAFE_CONTEXT_TOKENS - system_tokens - user_tokens - search_tokens - 500
+        
+        # Build message list
+        messages = [
+            {"role": "system", "content": system_prompt}
+        ]
+        
+        # Add conversation history (newest first approach)
+        if conversation_history:
+            # Reverse to prioritize recent messages
+            history_tokens = 0
+            kept_messages = []
+            
+            for msg in reversed(conversation_history[-self.MAX_HISTORY_MESSAGES:]):
+                msg_tokens = self._estimate_tokens(msg.get("content", ""))
+                
+                if history_tokens + msg_tokens < available_tokens:
+                    kept_messages.insert(0, msg)
+                    history_tokens += msg_tokens
+                else:
+                    # Context window full, stop adding older messages
+                    break
+            
+            # Add a context indicator if we dropped messages
+            if len(kept_messages) < len(conversation_history):
+                messages.append({
+                    "role": "system",
+                    "content": f"[Earlier conversation history truncated. Showing last {len(kept_messages)} messages.]"
+                })
+            
+            messages.extend(kept_messages)
+        
+        # Add search results if available
+        if search_results:
+            messages.append({
+                "role": "system",
+                "content": f"Current Web Search Results:\n{search_results}\n\nUse this up-to-date information to answer the user's question."
+            })
+        
+        # Add current message
+        messages.append({"role": "user", "content": user_message})
+        
+        # Log context usage
+        total_tokens = sum(self._estimate_tokens(m.get("content", "")) for m in messages)
+        print(f"[CONTEXT] Estimated tokens: {total_tokens}/{self.SAFE_CONTEXT_TOKENS}")
+        print(f"[CONTEXT] Messages in context: {len(messages)}")
+        
+        return messages
     
     def _extract_full_report_context(self, user_analysis: Optional[Dict]) -> str:
         """Extract complete information from user's analysis including reports"""
