@@ -7,3 +7,6 @@ Pillow
 pydantic
 dotenv
 openai
+httpx
+google-search-results
+serpapi

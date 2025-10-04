@@ -316,7 +316,7 @@ Remember: Respond with ONLY the JSON object, no other text."""
                     self.base_url,
                     headers=headers,
                     json={
-                        "model": "meta-llama/llama-3.2-11b-vision-instruct",
+                        "model": "meta-llama/llama-3.2-90b-vision-instruct",
                         "messages": [
                             {"role": "user", "content": "Say 'API connection successful'"}
                         ],

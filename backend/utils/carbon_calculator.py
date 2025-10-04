@@ -100,13 +100,19 @@ class CarbonCalculator:
         
         return round(base_area, 2), explanation
     
-    def calculate_sequestration(self, vision_analysis: dict, estimated_area: float) -> Dict[str, Any]:
+    def calculate_sequestration(
+        self, 
+        vision_analysis: dict, 
+        estimated_area: float,
+        location_data: dict = None
+    ) -> Dict[str, Any]:
         """
-        Calculate annual CO2 sequestration based on vision analysis
+        Calculate annual CO2 sequestration based on vision analysis and location
         
         Args:
             vision_analysis: Dict with vegetation type, density, condition
             estimated_area: Estimated land area in hectares
+            location_data: Optional location-based climate data
             
         Returns:
             Dict with sequestration calculations
@@ -127,11 +133,16 @@ class CarbonCalculator:
         density_pct = vision_analysis.get("density_percentage", 50.0)
         density_pct_mult = 0.5 + (density_pct / 100.0)  # Scale from 0.5 to 1.5
         
-        # Final calculation
-        effective_rate = base_rate * density_mult * condition_mult * density_pct_mult
+        # Location-based climate multiplier
+        climate_mult = 1.0
+        if location_data:
+            climate_mult = location_data.get("climate_multiplier", 1.0)
+        
+        # Final calculation with location adjustment
+        effective_rate = base_rate * density_mult * condition_mult * density_pct_mult * climate_mult
         annual_tons = effective_rate * estimated_area
         
-        return {
+        result = {
             "base_rate": round(base_rate, 2),
             "density_multiplier": density_mult,
             "condition_multiplier": condition_mult,
@@ -140,6 +151,13 @@ class CarbonCalculator:
             "estimated_area_hectares": estimated_area,
             "annual_co2_tons": round(annual_tons, 2)
         }
+        
+        # Add location data if provided
+        if location_data:
+            result["climate_multiplier"] = climate_mult
+            result["location_adjustment"] = location_data.get("explanation", "")
+        
+        return result
     
     def calculate_credits_and_revenue(self, annual_tons: float) -> Dict[str, Any]:
         """
@@ -254,7 +272,7 @@ class CarbonCalculator:
         
         # Condition-based recommendations
         if condition in ["degraded", "poor"]:
-            recommendations.append("⚠️ Land restoration could significantly increase carbon potential")
+            recommendations.append("Land restoration could significantly increase carbon potential")
             recommendations.append("Soil health improvement should be priority before enrolling in carbon programs")
         
         # Density-based recommendations
@@ -282,7 +300,8 @@ class CarbonCalculator:
     def calculate_complete_analysis(
         self, 
         vision_analysis: dict, 
-        image_metadata: dict
+        image_metadata: dict,
+        location_data: dict = None
     ) -> Dict[str, Any]:
         """
         Main method: Complete carbon analysis pipeline
@@ -290,6 +309,7 @@ class CarbonCalculator:
         Args:
             vision_analysis: Output from Llama Vision
             image_metadata: Image processing metadata
+            location_data: Optional location-based climate data
             
         Returns:
             Complete carbon estimate with all calculations
@@ -301,10 +321,11 @@ class CarbonCalculator:
             vision_analysis
         )
         
-        # Step 2: Calculate sequestration
+        # Step 2: Calculate sequestration (with location adjustment)
         sequestration = self.calculate_sequestration(
             vision_analysis,
-            estimated_area
+            estimated_area,
+            location_data
         )
         
         # Step 3: Calculate credits and revenue
@@ -326,7 +347,7 @@ class CarbonCalculator:
         next_steps = self.generate_next_steps()
         
         # Compile complete result
-        return {
+        result = {
             "carbon_estimate": {
                 "annual_sequestration_tons": sequestration["annual_co2_tons"],
                 "estimated_land_area_hectares": estimated_area,
@@ -344,11 +365,17 @@ class CarbonCalculator:
             "recommendations": recommendations,
             "next_steps": next_steps,
             "disclaimers": [
-                "⚠️ This is a preliminary estimate based on single image analysis",
-                "⚠️ Actual carbon credit eligibility requires professional land survey and soil testing",
-                "⚠️ Revenue estimates are approximate and depend on market conditions",
-                "⚠️ Most carbon programs require 20-30 year land commitments",
-                "⚠️ Verification and monitoring costs typically range from ₹4-17 lakhs",
-                "⚠️ Contact certified carbon credit programs for official assessment"
+                "This is a preliminary estimate based on single image analysis",
+                "Actual carbon credit eligibility requires professional land survey and soil testing",
+                "Revenue estimates are approximate and depend on market conditions",
+                "Most carbon programs require 20-30 year land commitments",
+                "Verification and monitoring costs typically range from ₹4-17 lakhs",
+                "Contact certified carbon credit programs for official assessment"
             ]
         }
+        
+        # Add location data if provided
+        if location_data:
+            result["location_analysis"] = location_data
+        
+        return result

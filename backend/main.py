@@ -1,15 +1,18 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
 import uuid
 from datetime import datetime
+from typing import Optional, List, Dict
 
 # Import our custom modules
 from utils.image_processor import ImageProcessor
 from utils.ai_client import AIClient
 from utils.carbon_calculator import CarbonCalculator
 from utils.report_generator import ReportGenerator
+from utils.location_service import LocationService
+from utils.chatbot_service import ChatbotService
 from models.schemas import UploadResponse, VisionAnalysis
 
 # Load environment variables
@@ -31,125 +34,231 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize AI client, calculator, and report generator
+# Initialize services
 ai_client = AIClient()
 carbon_calculator = CarbonCalculator()
 report_generator = ReportGenerator()
+location_service = LocationService()
+chatbot_service = ChatbotService()
 
 # Root endpoint
 @app.get("/")
 async def root():
     return {
-        "message": "Welcome to Carbon Credit Analyzer API",
-        "status": "running",
+        "message": "Carbon Credit Analyzer API",
         "version": "1.0.0",
+        "status": "running",
         "endpoints": {
-            "POST /analyze": "Upload and analyze farmland image",
-            "POST /analyze-with-report": "Complete pipeline: Analyze + Generate report",
-            "POST /generate-report": "Generate report from existing analysis",
-            "POST /generate-summary": "Generate executive summary",
-            "POST /generate-text-summary": "Generate simple text summary",
-            "GET /health": "Check API health and configuration",
-            "GET /test-ai": "Test AI connection",
-            "GET /test-openai": "Test OpenAI connection",
-            "GET /docs": "Interactive API documentation"
+            "POST /analyze": "Complete analysis with image + location + report",
+            "POST /chat": "Ask questions about carbon credits or your analysis",
+            "GET /chat/suggestions": "Get suggested questions",
+            "GET /states": "Get list of Indian states",
+            "GET /health": "API health check",
+            "GET /docs": "Interactive documentation"
         }
     }
 
-# Health check endpoint
+# Health check
 @app.get("/health")
 async def health_check():
     return {
         "status": "healthy",
-        "api_keys_loaded": {
+        "services": {
             "openrouter": bool(os.getenv("OPENROUTER_API_KEY")),
             "openai": bool(os.getenv("OPENAI_API_KEY")),
-            "cerebras": bool(os.getenv("CEREBRAS_API_KEY"))
+            "weather": bool(os.getenv("OPENWEATHER_API_KEY"))
         }
     }
 
-# Test AI connection
-@app.get("/test-ai")
-async def test_ai_connection():
-    """Test if OpenRouter API is working"""
+# Get states list
+@app.get("/states")
+async def get_states():
+    return {
+        "states": LocationService.get_state_list(),
+        "total": len(LocationService.get_state_list())
+    }
+
+# Test chatbot connection
+@app.get("/test-chatbot")
+async def test_chatbot():
+    """Test if Mistral chatbot is working via OpenRouter"""
     try:
-        result = await ai_client.test_connection()
+        result = await chatbot_service.test_connection()
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Main image analysis endpoint - COMPLETE PIPELINE
-@app.post("/analyze", response_model=dict)
-async def analyze_land(
-    file: UploadFile = File(..., description="Image of farmland/agricultural area")
+# Chatbot endpoint
+@app.post("/chat")
+async def chat(
+    message: str = Body(..., embed=True, description="Your question"),
+    conversation_history: Optional[List[Dict[str, str]]] = Body(None, description="Previous messages"),
+    user_analysis: Optional[Dict] = Body(None, description="Your complete analysis data for context")
 ):
     """
-    Upload an image of farmland for complete carbon credit potential analysis
+    Chat with AI assistant about carbon credits
     
-    Pipeline:
-    1. Image Processing (resize, optimize, validate)
-    2. AI Vision Analysis (Llama 3.2 Vision)
-    3. Carbon Calculations (sequestration, credits, revenue)
-    4. Recommendations & Next Steps
+    Features:
+    - Full knowledge of your analysis report
+    - Web search for current information
+    - Personalized answers based on your land
     
-    Accepts: JPEG, PNG, WebP (max 10MB)
-    Returns: Vision analysis + Carbon credit estimates + Recommendations
+    Ask questions like:
+    - "What are carbon credits?"
+    - "How was my revenue calculated?"
+    - "Why is my confidence level medium?"
+    - "What are the latest carbon credit prices in India?"
+    - "Are there programs specific to Gujarat?"
+    
+    Provide your complete analysis data for personalized answers.
     """
     
     try:
-        # Generate unique ID for this analysis
-        analysis_id = str(uuid.uuid4())
+        print(f"\n[CHAT] User: {message[:100]}...")
         
-        # Step 1: Process the image
+        result = await chatbot_service.chat(
+            user_message=message,
+            conversation_history=conversation_history,
+            user_analysis=user_analysis
+        )
+        
+        if result.get('search_performed'):
+            print(f"[CHAT] Web search performed")
+        
+        print(f"[CHAT] Response: {result.get('response', '')[:100]}...")
+        
+        return {
+            "status": result["status"],
+            "response": result["response"],
+            "tokens": result.get("tokens", {}),
+            "model": result.get("model"),
+            "search_performed": result.get("search_performed", False)
+        }
+        
+    except Exception as e:
+        print(f"[CHAT] Error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Chat failed: {str(e)}"
+        )
+
+# Get suggested questions
+@app.post("/chat/suggestions")
+async def get_suggestions(
+    user_analysis: Optional[Dict] = Body(None, description="Your analysis data")
+):
+    """
+    Get suggested questions based on your analysis
+    
+    Returns personalized question suggestions you can ask the chatbot.
+    """
+    
+    try:
+        suggestions = await chatbot_service.get_suggested_questions(user_analysis)
+        return {
+            "status": "success",
+            "suggestions": suggestions
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "suggestions": [
+                "What are carbon credits?",
+                "How do I get started?",
+                "What programs are available in India?"
+            ]
+        }
+
+# MAIN ENDPOINT - Complete Analysis
+@app.post("/analyze")
+async def analyze_land(
+    file: UploadFile = File(..., description="Farmland image (JPEG/PNG/WebP, max 10MB)"),
+    city: Optional[str] = Form(None, description="City name (e.g., Surat)"),
+    state: Optional[str] = Form(None, description="State name (e.g., Gujarat)"),
+    include_report: bool = Form(True, description="Generate professional report (recommended)")
+):
+    """
+    Complete farmland carbon credit analysis
+    
+    Upload image + location → Get analysis + report
+    
+    Parameters:
+    - file: Farmland image
+    - city: Your city (optional but recommended)
+    - state: Your state (optional but recommended)
+    - include_report: Generate reports (default: true)
+    
+    Returns: Complete analysis with vision, carbon calculations, and reports
+    """
+    
+    analysis_id = str(uuid.uuid4())
+    
+    try:
         print(f"\n{'='*60}")
-        print(f"[{analysis_id}] NEW ANALYSIS STARTED")
+        print(f"[{analysis_id}] ANALYSIS STARTED")
         print(f"{'='*60}")
+        
+        # STEP 1: Process Image
         print(f"[{analysis_id}] Processing image: {file.filename}")
         base64_image, metadata = await ImageProcessor.process_image(file)
         image_quality = ImageProcessor.estimate_image_quality(metadata)
+        print(f"[{analysis_id}] Image processed: {metadata['processed_dimensions']}")
         
-        print(f"[{analysis_id}] ✅ Image processed: {metadata['processed_dimensions']}")
+        # STEP 2: Location Analysis (optional)
+        location_data = None
+        if city and state:
+            print(f"[{analysis_id}] Fetching location data: {city}, {state}")
+            try:
+                location_data = await location_service.get_location_analysis(city, state)
+                print(f"[{analysis_id}] Location multiplier: {location_data['climate_multiplier']}x")
+                if location_data.get('weather_data'):
+                    w = location_data['weather_data']
+                    print(f"[{analysis_id}] Weather: {w['temperature']}°C, {w['humidity']}% humidity")
+            except Exception as e:
+                print(f"[{analysis_id}] Location fetch failed: {str(e)}")
+                location_data = None
+        else:
+            print(f"[{analysis_id}] No location provided - using baseline")
         
-        # Step 2: Analyze with Llama Vision
-        print(f"[{analysis_id}] 🤖 Analyzing with Llama Vision AI...")
+        # STEP 3: AI Vision Analysis
+        print(f"[{analysis_id}] Running Llama Vision analysis...")
         vision_result = await ai_client.analyze_image_with_llama_vision(
             base64_image, 
             metadata
         )
-        
-        # Add image quality to vision result
         vision_result["image_quality"] = image_quality
         
-        print(f"[{analysis_id}] ✅ Vision analysis complete")
-        print(f"[{analysis_id}]    └─ Type: {vision_result['vegetation_type']}")
-        print(f"[{analysis_id}]    └─ Density: {vision_result['density_percentage']}%")
-        print(f"[{analysis_id}]    └─ Condition: {vision_result['land_condition']}")
+        print(f"[{analysis_id}] Vision complete:")
+        print(f"[{analysis_id}]   Type: {vision_result['vegetation_type']}")
+        print(f"[{analysis_id}]   Density: {vision_result['density_percentage']}%")
+        print(f"[{analysis_id}]   Condition: {vision_result['land_condition']}")
         
-        # Step 3: Calculate carbon potential
-        print(f"[{analysis_id}] 💰 Calculating carbon credit potential...")
+        # STEP 4: Carbon Calculations
+        print(f"[{analysis_id}] Calculating carbon potential...")
         carbon_analysis = carbon_calculator.calculate_complete_analysis(
             vision_result,
-            metadata
+            metadata,
+            location_data
         )
         
         carbon_est = carbon_analysis["carbon_estimate"]
-        print(f"[{analysis_id}] ✅ Carbon calculations complete")
-        print(f"[{analysis_id}]    └─ Annual CO2: {carbon_est['annual_sequestration_tons']} tons")
-        print(f"[{analysis_id}]    └─ Est. Credits: {carbon_est['potential_annual_credits']}")
-        print(f"[{analysis_id}]    └─ Revenue (mid): ₹{carbon_est['potential_revenue_inr']['1_year']['mid']:,.0f}/year")
-        print(f"{'='*60}\n")
+        print(f"[{analysis_id}] Carbon calculations complete:")
+        print(f"[{analysis_id}]   Annual CO2: {carbon_est['annual_sequestration_tons']} tons")
+        print(f"[{analysis_id}]   Revenue (mid): ₹{carbon_est['potential_revenue_inr']['1_year']['mid']:,.0f}/year")
         
-        # Step 4: Return comprehensive result
-        return {
+        # Build response
+        response = {
             "analysis_id": analysis_id,
             "status": "success",
             "timestamp": datetime.now().isoformat(),
             "image_metadata": metadata,
+            "location_data": location_data,
             "vision_analysis": vision_result,
             "carbon_analysis": carbon_analysis,
             "summary": {
                 "vegetation_type": vision_result["vegetation_type"],
                 "land_condition": vision_result["land_condition"],
+                "location": f"{city}, {state}" if (city and state) else "Not provided",
                 "estimated_annual_revenue_inr": {
                     "conservative": carbon_est['potential_revenue_inr']['1_year']['min'],
                     "mid_range": carbon_est['potential_revenue_inr']['1_year']['mid'],
@@ -161,10 +270,33 @@ async def analyze_land(
             }
         }
         
+        # STEP 5: Generate Reports (if requested)
+        if include_report:
+            print(f"[{analysis_id}] Generating reports...")
+            try:
+                full_report = await report_generator.generate_full_report(response)
+                exec_summary = await report_generator.generate_executive_summary(response)
+                text_summary = await report_generator.generate_simple_text_summary(response)
+                
+                response["reports"] = {
+                    "full_report_markdown": full_report,
+                    "executive_summary": exec_summary,
+                    "text_summary": text_summary
+                }
+                print(f"[{analysis_id}] Reports generated")
+            except Exception as e:
+                print(f"[{analysis_id}] Report generation failed: {str(e)}")
+                response["reports"] = {"error": str(e)}
+        
+        print(f"[{analysis_id}] COMPLETE")
+        print(f"{'='*60}\n")
+        
+        return response
+        
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error during analysis: {str(e)}")
+        print(f"[{analysis_id}] ERROR: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(
@@ -172,207 +304,26 @@ async def analyze_land(
             detail=f"Analysis failed: {str(e)}"
         )
 
-# Quick upload test endpoint
-@app.post("/upload-test")
-async def upload_test(file: UploadFile = File(...)):
-    """Simple endpoint to test file upload without AI processing"""
-    try:
-        await ImageProcessor.validate_image(file)
-        return {
-            "status": "success",
-            "filename": file.filename,
-            "content_type": file.content_type,
-            "message": "File upload working correctly!"
-        }
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Test OpenAI connection
-@app.get("/test-openai")
-async def test_openai_connection():
-    """Test if OpenAI API is working"""
-    try:
-        result = await report_generator.test_connection()
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Generate report from existing analysis
-@app.post("/generate-report")
-async def generate_report(analysis_data: dict):
-    """
-    Generate professional report from analysis data
-    
-    Input: Complete analysis JSON from /analyze endpoint
-    Output: Professional markdown report
-    """
-    try:
-        print(f"\n🔄 Generating report with GPT-4o...")
-        
-        report = await report_generator.generate_full_report(analysis_data)
-        
-        print(f"✅ Report generated successfully ({len(report)} characters)")
-        
-        return {
-            "status": "success",
-            "report_markdown": report,
-            "report_length": len(report),
-            "message": "Report generated successfully"
-        }
-    except Exception as e:
-        print(f"❌ Report generation failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
-
-# Generate executive summary only
-@app.post("/generate-summary")
-async def generate_summary(analysis_data: dict):
-    """
-    Generate brief executive summary from analysis data
-    
-    Input: Complete analysis JSON from /analyze endpoint
-    Output: 2-3 paragraph summary
-    """
-    try:
-        print(f"\n🔄 Generating executive summary...")
-        
-        summary = await report_generator.generate_executive_summary(analysis_data)
-        
-        print(f"✅ Summary generated")
-        
-        return {
-            "status": "success",
-            "executive_summary": summary
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Summary generation failed: {str(e)}")
-
-# Generate simple text summary (for WhatsApp/SMS)
-@app.post("/generate-text-summary")
-async def generate_text_summary(analysis_data: dict):
-    """
-    Generate simple text summary for sharing via WhatsApp/SMS
-    
-    Input: Complete analysis JSON from /analyze endpoint
-    Output: Plain text summary
-    """
-    try:
-        summary = await report_generator.generate_simple_text_summary(analysis_data)
-        
-        return {
-            "status": "success",
-            "text_summary": summary
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# COMPLETE PIPELINE: Analyze + Generate Report
-@app.post("/analyze-with-report")
-async def analyze_with_report(
-    file: UploadFile = File(..., description="Image of farmland/agricultural area")
-):
-    """
-    Complete pipeline: Upload image → Analyze → Generate report
-    
-    Returns: Analysis + Professional report in one call
-    """
-    try:
-        # Step 1-3: Standard analysis (same as /analyze endpoint)
-        analysis_id = str(uuid.uuid4())
-        
-        print(f"\n{'='*60}")
-        print(f"[{analysis_id}] COMPLETE ANALYSIS + REPORT PIPELINE")
-        print(f"{'='*60}")
-        
-        # Image processing
-        base64_image, metadata = await ImageProcessor.process_image(file)
-        image_quality = ImageProcessor.estimate_image_quality(metadata)
-        
-        # Vision analysis
-        print(f"[{analysis_id}] 🤖 Running AI vision analysis...")
-        vision_result = await ai_client.analyze_image_with_llama_vision(base64_image, metadata)
-        vision_result["image_quality"] = image_quality
-        
-        # Carbon calculations
-        print(f"[{analysis_id}] 💰 Calculating carbon potential...")
-        carbon_analysis = carbon_calculator.calculate_complete_analysis(vision_result, metadata)
-        
-        # Compile analysis data
-        analysis_data = {
-            "analysis_id": analysis_id,
-            "status": "success",
-            "timestamp": datetime.now().isoformat(),
-            "image_metadata": metadata,
-            "vision_analysis": vision_result,
-            "carbon_analysis": carbon_analysis
-        }
-        
-        # Step 4: Generate report
-        print(f"[{analysis_id}] 📄 Generating professional report...")
-        full_report = await report_generator.generate_full_report(analysis_data)
-        exec_summary = await report_generator.generate_executive_summary(analysis_data)
-        text_summary = await report_generator.generate_simple_text_summary(analysis_data)
-        
-        carbon_est = carbon_analysis["carbon_estimate"]
-        print(f"[{analysis_id}] ✅ COMPLETE!")
-        print(f"[{analysis_id}]    └─ Revenue (mid): ₹{carbon_est['potential_revenue_inr']['1_year']['mid']:,.0f}/year")
-        print(f"[{analysis_id}]    └─ Report: {len(full_report)} chars")
-        print(f"{'='*60}\n")
-        
-        return {
-            "analysis_id": analysis_id,
-            "status": "success",
-            "timestamp": analysis_data["timestamp"],
-            "analysis": analysis_data,
-            "reports": {
-                "full_report_markdown": full_report,
-                "executive_summary": exec_summary,
-                "text_summary": text_summary
-            },
-            "summary": {
-                "vegetation_type": vision_result["vegetation_type"],
-                "land_condition": vision_result["land_condition"],
-                "estimated_annual_revenue_inr": {
-                    "conservative": carbon_est['potential_revenue_inr']['1_year']['min'],
-                    "mid_range": carbon_est['potential_revenue_inr']['1_year']['mid'],
-                    "optimistic": carbon_est['potential_revenue_inr']['1_year']['max']
-                },
-                "confidence": carbon_est['confidence_level']
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Pipeline failed: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Analysis pipeline failed: {str(e)}")
-
 # Startup event
 @app.on_event("startup")
 async def startup_event():
     print("=" * 60)
-    print("🌱 Carbon Credit Analyzer API Starting...")
+    print("Carbon Credit Analyzer API")
     print("=" * 60)
-    print(f"✅ FastAPI server initialized")
-    print(f"✅ CORS enabled for all origins")
-    print(f"✅ Carbon Calculator initialized")
-    print(f"✅ Report Generator initialized")
+    print("FastAPI server initialized")
+    print("All services initialized")
     
     # Check API keys
-    if os.getenv("OPENROUTER_API_KEY"):
-        print(f"✅ OpenRouter API key loaded")
-    else:
-        print(f"⚠️  OpenRouter API key missing!")
+    keys = {
+        "OpenRouter (Llama Vision + Chatbot)": os.getenv("OPENROUTER_API_KEY"),
+        "OpenAI (Reports)": os.getenv("OPENAI_API_KEY"),
+        "OpenWeather (Location)": os.getenv("OPENWEATHER_API_KEY")
+    }
     
-    if os.getenv("OPENAI_API_KEY"):
-        print(f"✅ OpenAI API key loaded")
-    else:
-        print(f"⚠️  OpenAI API key missing!")
+    for service, key in keys.items():
+        status = "OK" if key else "MISSING"
+        print(f"{service}: {status}")
     
     print("=" * 60)
-    print("📚 Visit http://localhost:8000/docs for API documentation")
-    print("🚀 Ready to analyze farmland and generate reports!")
+    print("Visit http://localhost:8000/docs")
     print("=" * 60)

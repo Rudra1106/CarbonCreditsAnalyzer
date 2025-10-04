@@ -214,7 +214,7 @@ Make it professional, informative, and actionable. Use tables for financial proj
 
 🌍 Carbon Impact:
 • {carbon.get('annual_sequestration_tons', 0)} tons CO2 captured/year
-• Equivalent to taking ~{max(1, int(carbon.get('annual_sequestration_tons', 0) / 4.6))} car(s) off the road!
+- Equivalent to taking ~{max(1, int(carbon.get('annual_sequestration_tons', 0) / 4.6))} car(s) off the road!
 
 ⚠️ Important: This is a preliminary estimate. Professional land survey required for carbon credit enrollment.
 
