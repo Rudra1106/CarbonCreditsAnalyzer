@@ -90,7 +90,7 @@ function mapApiToAnalysisResult(data: any): AnalysisResult {
 }
 
 
-const API_BASE_URL = "https://carboncreditsanalyzer-production.up.railway.app/";
+const API_BASE_URL = "https://carboncreditsanalyzer-production.up.railway.app";
 
 if (!API_BASE_URL) {
   // In a real app, you'd want to handle this more gracefully.
