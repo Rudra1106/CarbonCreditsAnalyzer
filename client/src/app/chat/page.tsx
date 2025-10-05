@@ -9,7 +9,7 @@ import { Bot, User, ArrowUp, Paperclip, Search, Lightbulb, MoreHorizontal } from
 import { ChatMessages } from '@/components/chat/chat-messages';
 import { ChatInputV2 } from '@/components/chat/chat-input-v2';
 import { SuggestedQuestions } from '@/components/chat/suggested-questions';
-import { getChatResponse, getChatSuggestions } from '@/lib/actions';
+import { getChatResponse } from '@/lib/actions';
 import { useAppStore } from '@/lib/store';
 import type { ChatMessage } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
