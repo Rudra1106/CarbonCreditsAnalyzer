@@ -15,7 +15,7 @@ import { Bot, Trash2 } from 'lucide-react';
 import { ChatMessages } from './chat-messages';
 import { ChatInput } from './chat-input';
 import { SuggestedQuestions } from './suggested-questions';
-import { getChatResponse, getChatSuggestions } from '@/lib/actions';
+import { getChatResponse } from '@/lib/actions';
 import { useAppStore } from '@/lib/store';
 import type { ChatMessage } from '@/lib/types';
 
